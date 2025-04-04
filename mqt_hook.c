@@ -9,21 +9,6 @@
 
 #include "config.h"
 
-// Switch configuration
-const char* switch_name = "MQTT Hook";
-const char* unique_id = "mqt_hook";
-const char* command_topic = "homeassistant/switch/mqt_hook/set";
-const char* state_topic = "homeassistant/switch/mqt_hook/state";
-const char* availability_topic = "homeassistant/switch/mqt_hook/availability";
-const char* ts_topic = "homeassistant/switch/mqt_hook/time";
-const char* payload_on = "ON";
-const char* payload_off = "OFF";
-const char* payload_available = "online";
-const char* payload_not_available = "offline";
-const char* state_on = "ON";
-const char* state_off = "OFF";
-
-
 static volatile sig_atomic_t keep_running = 1;
 
 // Global config variables from config.c
@@ -76,7 +61,7 @@ int main(int argc, char* argv[]) {
     sigaction(SIGTERM, &action, NULL);
     sigaction(SIGINT, &action, NULL);
     // Initialize syslog
-    openlog("mqtt_hook_test", LOG_PID|LOG_CONS, LOG_USER);
+    openlog("mqt_hook", LOG_PID|LOG_CONS, LOG_USER);
 
     // Use argv[1] as config file name if provided, else use config.json:
     if (argc > 1) {
@@ -88,13 +73,12 @@ int main(int argc, char* argv[]) {
         syslog(LOG_ERR, "Failed to load configuration config.json\n");
         exit(EXIT_FAILURE);
     }
-
+    
     syslog(LOG_INFO, "MQTT Hook started\n");
     MQTTClient client;
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     int rc;
 
-    // Replace hardcoded values with config values
     MQTTClient_create(&client, gConfMqtt.address, gConfMqtt.clientid, 
     MQTTCLIENT_PERSISTENCE_NONE, NULL);
     conn_opts.keepAliveInterval = gConfMqtt.keepalive;
@@ -102,26 +86,12 @@ int main(int argc, char* argv[]) {
     conn_opts.username = gConfMqtt.username;
     conn_opts.password = gConfMqtt.password;
 
-/*     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    conn_opts.keepAliveInterval = 20;
-    conn_opts.cleansession = 1;
-    conn_opts.username = USERNAME;
-    conn_opts.password = PASSWORD; */
-
-    MQTTClient_willOptions will_opts = MQTTClient_willOptions_initializer;
-    will_opts.topicName = availability_topic;
-    will_opts.message = payload_not_available;
-    will_opts.qos = QOS;
-    will_opts.retained = 1;
-    conn_opts.will = &will_opts;
-
-/*     // Add last will and testament:
     MQTTClient_willOptions will_opts = MQTTClient_willOptions_initializer;
     will_opts.topicName = gConfHass.availability_topic;
     will_opts.message = gConfHass.payload_not_available;
     will_opts.qos = gConfMqtt.qos;
     will_opts.retained = gConfMqtt.retained;
-    conn_opts.will = &will_opts; */
+    conn_opts.will = &will_opts;
 
     if ((rc = MQTTClient_setCallbacks(client, client, NULL, msgarrvd, NULL)) != MQTTCLIENT_SUCCESS) {
         syslog(LOG_ERR, "Failed to set callbacks, return code %d\n", rc);
@@ -180,6 +150,11 @@ int main(int argc, char* argv[]) {
     }
     // Cleanup code
     syslog(LOG_INFO, "MQTT Hook shutting down..\n");
+    // Publish offline status before disconnecting
+    MQTTClient_publish(client, gConfHass.availability_topic, 
+        strlen(gConfHass.payload_not_available), 
+        gConfHass.payload_not_available, 
+        gConfMqtt.qos, 1, NULL);
     freeConfig();
     MQTTClient_disconnect(client, 10000);
     MQTTClient_destroy(&client);
